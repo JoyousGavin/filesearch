@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <optional>
 #include <regex>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -34,9 +35,12 @@ public:
     bool Matches(const FileInfo& file) const;
     bool HasConditions() const;
 
-    // std::copy_if 复制出满足条件的文件
-    std::vector<FileInfo> Apply(const std::vector<FileInfo>& files) const;
+    // 经典写法：std::copy_if + back_inserter
+    std::vector<FileInfo> Apply(std::span<const FileInfo> files) const;
+    // C++20 写法：views::filter 惰性视图 + ranges::copy 物化（程序默认使用这个版本）
+    std::vector<FileInfo> ApplyWithRanges(std::span<const FileInfo> files) const;
 
+    // std::ranges::sort + FileOrdering 中的具名比较器
     static void Sort(std::vector<FileInfo>& files, SortKey sort_key);
 
 private:

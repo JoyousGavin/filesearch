@@ -182,7 +182,8 @@ DuplicateReport DuplicateDetector::FindDuplicates(std::span<const FileInfo> file
             ++report.unreadable_file_count;
             continue;
         }
-        quick_groups[SizeAndHash{size_candidates[index]->size, *quick_hashes[index]}].push_back(size_candidates[index]);
+        quick_groups[SizeAndHash{size_candidates[index]->size, *quick_hashes[index]}].push_back(
+            size_candidates[index]);  //call (anonymous namespace)::SizeAndHashHasher::operator() 与 SizeAndHash::operator==
     }
 
     // 不超过 16 KB 的文件，快速哈希已经覆盖全文，可以直接定案；更大的进入第 3 轮
@@ -207,7 +208,8 @@ DuplicateReport DuplicateDetector::FindDuplicates(std::span<const FileInfo> file
             ++report.unreadable_file_count;
             continue;
         }
-        final_groups[SizeAndHash{full_candidates[index]->size, *full_hashes[index]}].push_back(full_candidates[index]);
+        final_groups[SizeAndHash{full_candidates[index]->size, *full_hashes[index]}].push_back(
+            full_candidates[index]);  //call (anonymous namespace)::SizeAndHashHasher::operator() 与 SizeAndHash::operator==
     }
 
     for (const auto& [key, members] : final_groups) {

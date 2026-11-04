@@ -17,6 +17,7 @@ add_executable(filesearch
     src/ConsoleRenderer.cpp
     src/DuplicateDetector.cpp
     src/FileAnalyzer.cpp
+    src/CacheStore.cpp
     src/CommandLineParser.cpp
     src/FileFilter.cpp
     src/Platform.cpp

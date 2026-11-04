@@ -205,6 +205,10 @@ void ConsoleRenderer::RenderScanSummary(const scan::ScanResult& scan_result, boo
             << FormatCount(scan_result.directory_count) << " 个目录, " << FormatBytes(scan_result.total_bytes)
             << ", 用时 " << FormatDuration(scan_result.elapsed) << " (" << scan_result.thread_count << " 线程, "
             << scan::ToString(scan_result.strategy) << ")\n";
+    if (scan_result.reused_directory_count > 0) {
+        output_ << "缓存命中: " << FormatCount(scan_result.reused_directory_count) << " / "
+                << FormatCount(scan_result.directory_count) << " 个目录未变化，直接复用上次结果\n";
+    }
     if (scan_result.error_count == 0) {
         return;
     }
@@ -325,6 +329,82 @@ void ConsoleRenderer::RenderDuplicateReport(const analysis::DuplicateReport& rep
             << " 个文件), 每组只保留一份可释放 " << FormatBytes(reclaimable_bytes) << '\n'
             << "候选 " << FormatCount(report.candidate_file_count) << " 个文件, 读取 "
             << FormatBytes(report.hashed_bytes) << ", 无法读取 " << report.unreadable_file_count << " 个\n";
+}
+
+void ConsoleRenderer::RenderCacheLoad(const cache::LoadResult& load_result, const std::filesystem::path& cache_file) {
+    const std::string cache_file_text = text::PathToUtf8(cache_file);
+    switch (load_result.status) {
+        case cache::LoadStatus::Loaded:
+            output_ << "缓存: 已读取 " << cache_file_text << " (" << FormatCount(load_result.index->directories.size())
+                    << " 个目录, " << FormatCount(load_result.index->file_count) << " 个文件)\n";
+            break;
+        case cache::LoadStatus::NotFound:
+            output_ << "缓存: 尚无缓存，本次完整扫描后写入 " << cache_file_text << '\n';
+            break;
+        case cache::LoadStatus::RootMismatch:
+            output_ << "缓存: " << cache_file_text << " 属于另一个目录 (" << load_result.detail
+                    << ")，本次完整扫描后覆盖\n";
+            break;
+        case cache::LoadStatus::ForeignFile:
+            output_ << "缓存: " << cache_file_text << " 不是 filesearch 缓存文件，不读取也不覆盖，本次不使用缓存\n";
+            break;
+        case cache::LoadStatus::Invalid:
+            output_ << "缓存: " << cache_file_text << " 无法使用 (" << load_result.detail << ")，本次完整扫描后重写\n";
+            break;
+        case cache::LoadStatus::Skipped:
+            output_ << "缓存: 已指定 --refresh，忽略已有缓存，本次完整扫描后重写 " << cache_file_text << '\n';
+            break;
+    }
+}
+
+void ConsoleRenderer::RenderCacheSaved(const std::filesystem::path& cache_file, const scan::ScanResult& scan_result) {
+    output_ << "缓存: 已写入 " << FormatCount(scan_result.directories.size()) << " 个目录、"
+            << FormatCount(scan_result.files.size()) << " 个文件 -> " << text::PathToUtf8(cache_file) << '\n';
+}
+
+void ConsoleRenderer::RenderCacheUpToDate(const std::filesystem::path& cache_file) {
+    output_ << "缓存: 所有目录均未变化，无需重写 " << text::PathToUtf8(cache_file) << '\n';
+}
+
+void ConsoleRenderer::RenderTimingReport(const timing::TimingReport& timing_report) {
+    constexpr std::size_t kModuleWidth = 22;
+    RenderTitle("模块耗时（std::chrono::steady_clock）");
+    const StreamFormatGuard format_guard(output_);
+    output_ << PadToWidth("模块", kModuleWidth, Alignment::Left) << PadToWidth("耗时", kSizeWidth, Alignment::Right)
+            << "  " << PadToWidth("占比", kPercentWidth, Alignment::Right) << "  "
+            << PadToWidth("次数", kRankWidth + 2, Alignment::Right) << '\n';
+    RenderRule(kModuleWidth + kSizeWidth + kPercentWidth + kRankWidth + 6);
+
+    const std::chrono::nanoseconds total_duration = timing_report.Total();
+    for (const timing::TimingRecord& record : timing_report.Records()) {
+        const double share = total_duration.count() == 0 ? 0.0
+                                                         : static_cast<double>(record.duration.count()) /
+                                                               static_cast<double>(total_duration.count());
+        output_ << PadToWidth(record.module_name, kModuleWidth, Alignment::Left) << std::right
+                << std::setw(static_cast<int>(kSizeWidth)) << FormatDuration(record.duration) << "  " << std::fixed
+                << std::setprecision(1) << std::setw(static_cast<int>(kPercentWidth) - 1) << share * 100.0 << "%  "
+                << std::setw(static_cast<int>(kRankWidth) + 2) << record.call_count << '\n';
+    }
+    output_ << PadToWidth("合计", kModuleWidth, Alignment::Left) << std::setw(static_cast<int>(kSizeWidth))
+            << FormatDuration(total_duration) << '\n';
+}
+
+void ConsoleRenderer::RenderBenchmark(std::span<const timing::BenchmarkResult> results, std::size_t file_count,
+                                      std::size_t repetition_count) {
+    constexpr std::size_t kOperationWidth = 40;
+    RenderTitle(std::format("基准测试（{} 个文件，每项运行 {} 次）", FormatCount(file_count), repetition_count));
+    const StreamFormatGuard format_guard(output_);
+    output_ << PadToWidth("操作", kOperationWidth, Alignment::Left)
+            << PadToWidth("最快", kSizeWidth, Alignment::Right) << "  "
+            << PadToWidth("平均", kSizeWidth, Alignment::Right) << "  "
+            << PadToWidth("结果数", kCountWidth, Alignment::Right) << '\n';
+    RenderRule(kOperationWidth + kSizeWidth * 2 + kCountWidth + 4);
+    for (const timing::BenchmarkResult& result : results) {
+        output_ << PadToWidth(result.operation_name, kOperationWidth, Alignment::Left) << std::right
+                << std::setw(static_cast<int>(kSizeWidth)) << FormatDuration(result.fastest_duration) << "  "
+                << std::setw(static_cast<int>(kSizeWidth)) << FormatDuration(result.average_duration) << "  "
+                << std::setw(static_cast<int>(kCountWidth)) << FormatCount(result.result_size) << '\n';
+    }
 }
 
 }  // namespace filesearch::render

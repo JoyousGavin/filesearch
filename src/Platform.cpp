@@ -66,7 +66,7 @@ std::vector<std::string> CollectUtf8Arguments(int argument_count, char** argumen
 #ifdef _WIN32
     int wide_argument_count = 0;
     const std::unique_ptr<wchar_t*, LocalFreeDeleter> wide_arguments(
-        ::CommandLineToArgvW(::GetCommandLineW(), &wide_argument_count));
+        ::CommandLineToArgvW(::GetCommandLineW(), &wide_argument_count));  //call (anonymous namespace)::LocalFreeDeleter::operator()（unique_ptr 析构时自动调用）
     if (wide_arguments) {
         std::vector<std::string> arguments;
         arguments.reserve(static_cast<std::size_t>(wide_argument_count));

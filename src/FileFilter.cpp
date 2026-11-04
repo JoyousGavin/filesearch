@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <iterator>
+#include <ranges>
 #include <utility>
 
 namespace filesearch::filter {
@@ -63,7 +64,7 @@ bool FileFilter::MatchesName(const FileInfo& file) const {
     return true;
 }
 
-std::vector<FileInfo> FileFilter::Apply(const std::vector<FileInfo>& files) const {
+std::vector<FileInfo> FileFilter::Apply(std::span<const FileInfo> files) const {
     std::vector<FileInfo> matched_files;
     std::copy_if(files.begin(), files.end(), std::back_inserter(matched_files),
                  [this](const FileInfo& file) {
@@ -72,16 +73,26 @@ std::vector<FileInfo> FileFilter::Apply(const std::vector<FileInfo>& files) cons
     return matched_files;
 }
 
+std::vector<FileInfo> FileFilter::ApplyWithRanges(std::span<const FileInfo> files) const {
+    // views::filter 不复制任何元素，只在迭代时调用谓词；ranges::copy 遍历视图时才真正拷贝匹配项
+    auto matched_view = files | std::views::filter([this](const FileInfo& file) {
+                            return Matches(file);  //call filesearch::filter::FileFilter::Matches
+                        });  //call 上面的 lambda（filter_view 迭代时逐个调用）
+    std::vector<FileInfo> matched_files;
+    std::ranges::copy(matched_view, std::back_inserter(matched_files));
+    return matched_files;
+}
+
 void FileFilter::Sort(std::vector<FileInfo>& files, SortKey sort_key) {
     switch (sort_key) {
         case SortKey::Size:
-            std::sort(files.begin(), files.end(), &FileOrdering::BySizeDescending);  //call filesearch::FileOrdering::BySizeDescending
+            std::ranges::sort(files, &FileOrdering::BySizeDescending);  //call filesearch::FileOrdering::BySizeDescending
             break;
         case SortKey::Path:
-            std::sort(files.begin(), files.end(), &FileOrdering::ByPathAscending);  //call filesearch::FileOrdering::ByPathAscending
+            std::ranges::sort(files, &FileOrdering::ByPathAscending);  //call filesearch::FileOrdering::ByPathAscending
             break;
         case SortKey::Time:
-            std::sort(files.begin(), files.end(), &FileOrdering::ByTimeDescending);  //call filesearch::FileOrdering::ByTimeDescending
+            std::ranges::sort(files, &FileOrdering::ByTimeDescending);  //call filesearch::FileOrdering::ByTimeDescending
             break;
     }
 }

@@ -85,7 +85,23 @@ ScanResult ScanEngine::Run() {
     result.thread_count = options_.thread_count;
     result.strategy = options_.strategy;
     result.elapsed = final_progress.elapsed;
+    result.directories = std::move(directory_records_);
+    result.reused_directory_count = reused_directories_.load();
     return result;
+}
+
+std::filesystem::path NormalizeRootDirectory(const std::filesystem::path& root_directory) {
+    std::error_code absolute_error;
+    std::filesystem::path normalized = std::filesystem::absolute(root_directory, absolute_error);
+    if (absolute_error) {
+        normalized = root_directory;
+    }
+    normalized = normalized.lexically_normal();
+    // "C:\Data\" 的 filename 为空：去掉末尾分隔符；但 "C:\" 这样的根路径要保留
+    if (!normalized.has_filename() && normalized.has_relative_path()) {
+        normalized = normalized.parent_path();
+    }
+    return normalized;
 }
 
 std::optional<FileInfo> ScanEngine::MakeFileInfo(const std::filesystem::directory_entry& entry,
@@ -141,6 +157,7 @@ void ScanEngine::RunWorkQueue() {
 void ScanEngine::WorkerLoop() {
     std::vector<FileInfo> local_files;
     std::vector<std::filesystem::path> discovered_subdirectories;
+    std::vector<DirectoryRecord> local_directory_records;
     try {
         while (true) {
             std::filesystem::path directory;
@@ -158,7 +175,7 @@ void ScanEngine::WorkerLoop() {
                 ++active_workers_;
             }
 
-            ScanOneDirectory(directory, local_files, discovered_subdirectories);
+            ProcessQueuedDirectory(directory, local_files, discovered_subdirectories, local_directory_records);
 
             bool scan_finished = false;
             {
@@ -178,8 +195,12 @@ void ScanEngine::WorkerLoop() {
             if (local_files.size() >= kLocalFlushThreshold) {
                 AppendFiles(local_files);
             }
+            if (local_directory_records.size() >= kLocalFlushThreshold) {
+                AppendDirectoryRecords(local_directory_records);
+            }
         }
         AppendFiles(local_files);
+        AppendDirectoryRecords(local_directory_records);
     } catch (...) {
         // 异常不能逃出线程函数（否则 std::terminate），先保存，等 join 之后在 Run() 中重新抛出
         RecordException(std::current_exception());
@@ -191,14 +212,55 @@ void ScanEngine::WorkerLoop() {
     }
 }
 
-void ScanEngine::ScanOneDirectory(const std::filesystem::path& directory, std::vector<FileInfo>& local_files,
-                                  std::vector<std::filesystem::path>& discovered_subdirectories) {
+void ScanEngine::ProcessQueuedDirectory(const std::filesystem::path& directory, std::vector<FileInfo>& local_files,
+                                        std::vector<std::filesystem::path>& discovered_subdirectories,
+                                        std::vector<DirectoryRecord>& local_directory_records) {
+    // 先取目录的修改时间再遍历：遍历期间若有变化，下次运行时时间对不上，会重新遍历
+    std::optional<std::filesystem::file_time_type> directory_time;
+    if (options_.record_directories || options_.previous_snapshot != nullptr) {
+        std::error_code time_error;
+        const std::filesystem::file_time_type current_time = std::filesystem::last_write_time(directory, time_error);
+        if (!time_error) {
+            directory_time = current_time;
+        }
+    }
+
+    if (options_.previous_snapshot != nullptr && directory_time) {
+        const DirectorySnapshot* snapshot = options_.previous_snapshot->FindDirectory(directory);  //call filesearch::cache::CacheIndex::FindDirectory（虚函数）
+        if (snapshot != nullptr && snapshot->last_write_time == directory_time) {
+            // 目录条目没有增删改名：复用快照，子目录照常入队（它们各自再比较修改时间）
+            for (const FileInfo& file : snapshot->files) {
+                scanned_bytes_.fetch_add(file.size, std::memory_order_relaxed);
+            }
+            scanned_files_.fetch_add(snapshot->files.size(), std::memory_order_relaxed);
+            scanned_directories_.fetch_add(1, std::memory_order_relaxed);
+            reused_directories_.fetch_add(1, std::memory_order_relaxed);
+            local_files.insert(local_files.end(), snapshot->files.begin(), snapshot->files.end());
+            discovered_subdirectories.insert(discovered_subdirectories.end(), snapshot->subdirectories.begin(),
+                                             snapshot->subdirectories.end());
+            if (options_.record_directories) {
+                local_directory_records.push_back(DirectoryRecord{directory, directory_time});
+            }
+            return;
+        }
+    }
+
+    const bool enumeration_complete = EnumerateDirectory(directory, local_files, discovered_subdirectories);
+    if (options_.record_directories) {
+        // 没有完整读取的目录不记录修改时间，保证下次一定重新遍历（并再次报告错误）
+        local_directory_records.push_back(
+            DirectoryRecord{directory, enumeration_complete ? directory_time : std::nullopt});
+    }
+}
+
+bool ScanEngine::EnumerateDirectory(const std::filesystem::path& directory, std::vector<FileInfo>& local_files,
+                                    std::vector<std::filesystem::path>& discovered_subdirectories) {
     std::error_code iteration_error;
     std::filesystem::directory_iterator iterator(
         directory, std::filesystem::directory_options::skip_permission_denied, iteration_error);
     if (iteration_error) {
         RecordError(directory, iteration_error, "无法打开目录");
-        return;
+        return false;
     }
     scanned_directories_.fetch_add(1, std::memory_order_relaxed);
 
@@ -230,7 +292,9 @@ void ScanEngine::ScanOneDirectory(const std::filesystem::path& directory, std::v
     // increment 失败时迭代器变为 end，循环结束；这里只丢失当前这一个目录的剩余条目
     if (iteration_error) {
         RecordError(directory, iteration_error, "目录遍历中断");
+        return false;
     }
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -241,7 +305,7 @@ void ScanEngine::ScanOneDirectory(const std::filesystem::path& directory, std::v
 void ScanEngine::RunAsyncPerSubdirectory() {
     std::vector<FileInfo> root_files;
     std::vector<std::filesystem::path> top_level_subdirectories;
-    ScanOneDirectory(options_.root_directory, root_files, top_level_subdirectories);
+    EnumerateDirectory(options_.root_directory, root_files, top_level_subdirectories);
     AppendFiles(root_files);
 
     // 任务数不超过线程数；每个任务通过原子下标领取下一个子文件夹
@@ -326,6 +390,18 @@ void ScanEngine::AppendFiles(std::vector<FileInfo>& local_files) {
                       std::make_move_iterator(local_files.end()));
     }
     local_files.clear();
+}
+
+void ScanEngine::AppendDirectoryRecords(std::vector<DirectoryRecord>& local_directory_records) {
+    if (local_directory_records.empty()) {
+        return;
+    }
+    {
+        const std::lock_guard<std::mutex> lock(results_mutex_);
+        directory_records_.insert(directory_records_.end(), std::make_move_iterator(local_directory_records.begin()),
+                                  std::make_move_iterator(local_directory_records.end()));
+    }
+    local_directory_records.clear();
 }
 
 void ScanEngine::RecordError(const std::filesystem::path& path, const std::error_code& error,

@@ -15,7 +15,7 @@ namespace filesearch::cli {
 namespace {
 
 constexpr std::array kOptionSpecs{
-    OptionSpec{"mode", 'm', true, true, "<search|stats|top|dup>", "运行模式，可用逗号组合，如 stats,top（默认 search）"},
+    OptionSpec{"mode", 'm', true, true, "<search|stats|top|dup|bench>", "运行模式，可用逗号组合，如 stats,top（默认 search）"},
     OptionSpec{"directory", 'd', true, false, "<path>", "要扫描的根目录（默认当前目录，也可作为位置参数）"},
     OptionSpec{"extension", 'e', true, true, "<list>", "只保留这些后缀，逗号分隔，可重复，如 .mp4,.mkv"},
     OptionSpec{"min-size", 's', true, false, "<size>", "最小文件大小，如 100MB、1.5G、512K"},
@@ -25,7 +25,11 @@ constexpr std::array kOptionSpecs{
     OptionSpec{"sort", '\0', true, false, "<size|path|time>", "搜索结果排序：大小降序 / 路径升序 / 修改时间降序"},
     OptionSpec{"limit", 'l', true, false, "<n>", "每张表最多显示多少行/组（默认 50，0 表示全部）"},
     OptionSpec{"top", 'k', true, false, "<n>", "top 模式显示最大的 N 个文件（默认 10）"},
-    OptionSpec{"top-algorithm", '\0', true, false, "<heap|partial|nth|sort>", "Top K 算法（默认 heap：小顶堆 O(N log K)）"},
+    OptionSpec{"top-algorithm", '\0', true, false, "<heap|partial|nth|ranges|sort>", "Top K 算法（默认 heap：小顶堆 O(N log K)）"},
+    OptionSpec{"cache", 'c', false, false, "", "启用缓存索引：目录未变化时复用上次结果（存放在系统临时目录）"},
+    OptionSpec{"cache-file", '\0', true, false, "<file>", "指定缓存文件路径（隐含 --cache）"},
+    OptionSpec{"refresh", '\0', false, false, "", "忽略已有缓存，完整重新扫描并重写缓存（隐含 --cache）"},
+    OptionSpec{"timing", '\0', false, false, "", "输出各模块耗时（std::chrono::steady_clock）"},
     OptionSpec{"threads", 't', true, false, "<n>", "扫描线程数（默认 CPU 逻辑核心数）"},
     OptionSpec{"strategy", '\0', true, false, "<queue|async>", "并发策略：queue 共享目录队列（默认）/ async 每个子文件夹一个任务"},
     OptionSpec{"verbose", 'v', false, false, "", "显示全部扫描错误明细"},
@@ -48,12 +52,14 @@ constexpr std::array kModeChoices{
     Choice<RunMode>{"stats", RunMode::Statistics},
     Choice<RunMode>{"top", RunMode::TopFiles},
     Choice<RunMode>{"dup", RunMode::Duplicates},
+    Choice<RunMode>{"bench", RunMode::Benchmark},
 };
 
 constexpr std::array kTopAlgorithmChoices{
     Choice<analysis::TopAlgorithm>{"heap", analysis::TopAlgorithm::Heap},
     Choice<analysis::TopAlgorithm>{"partial", analysis::TopAlgorithm::PartialSortCopy},
     Choice<analysis::TopAlgorithm>{"nth", analysis::TopAlgorithm::NthElement},
+    Choice<analysis::TopAlgorithm>{"ranges", analysis::TopAlgorithm::Ranges},
     Choice<analysis::TopAlgorithm>{"sort", analysis::TopAlgorithm::FullSort},
 };
 
@@ -203,7 +209,8 @@ void CommandLineParser::StoreValue(const OptionSpec& option_spec, std::string_vi
 }
 
 std::optional<std::string_view> CommandLineParser::FindValue(std::string_view long_name) const {
-    const auto found = parsed_values_.find(long_name);  // 透明哈希：用 string_view 直接查，不构造 std::string
+    // 透明哈希：用 string_view 直接查，不构造 std::string
+    const auto found = parsed_values_.find(long_name);  //call filesearch::text::TransparentStringHash::operator()
     if (found == parsed_values_.end()) {
         return std::nullopt;
     }
@@ -377,12 +384,26 @@ ParseOutcome CommandLineParser::BuildOptions() const {
         const std::optional<analysis::TopAlgorithm> top_algorithm =
             LookupChoice(kTopAlgorithmChoices, *algorithm_value);
         if (!top_algorithm) {
-            return ParseError{"--top-algorithm 只能是 heap、partial、nth 或 sort，实际为: " +
+            return ParseError{"--top-algorithm 只能是 heap、partial、nth、ranges 或 sort，实际为: " +
                               std::string(*algorithm_value)};
         }
         options.top_algorithm = *top_algorithm;
     }
     options.verbose = parsed_values_.contains(std::string_view{"verbose"});
+    options.show_timing = parsed_values_.contains(std::string_view{"timing"});
+
+    options.refresh_cache = parsed_values_.contains(std::string_view{"refresh"});
+    if (const std::optional<std::string_view> cache_file_value = FindValue("cache-file")) {
+        if (text::TrimWhitespace(*cache_file_value).empty()) {
+            return ParseError{"--cache-file 不能为空"};
+        }
+        options.cache_file = text::PathFromUtf8(*cache_file_value);
+    }
+    options.cache_enabled =
+        parsed_values_.contains(std::string_view{"cache"}) || options.cache_file || options.refresh_cache;
+    if (options.cache_enabled && options.scan.strategy != scan::ScanStrategy::WorkQueue) {
+        return ParseError{"缓存只支持 queue 策略（async 策略按子树整体遍历，无法逐目录复用缓存）"};
+    }
     return options;
 }
 
@@ -399,7 +420,12 @@ void CommandLineParser::PrintUsage(std::ostream& output) {
         if (!option_spec.value_hint.empty()) {
             flag_text.append(" ").append(option_spec.value_hint);
         }
-        output << "  " << std::left << std::setw(kFlagColumnWidth) << flag_text << option_spec.description << '\n';
+        output << "  " << std::left << std::setw(kFlagColumnWidth) << flag_text;
+        if (flag_text.size() >= static_cast<std::size_t>(kFlagColumnWidth)) {
+            // 选项本身比列宽还长：说明文字换到下一行，并缩进到说明列
+            output << '\n' << std::string(static_cast<std::size_t>(kFlagColumnWidth) + 2, ' ');
+        }
+        output << option_spec.description << '\n';
     }
     output << "\n示例:\n"
            << R"(  filesearch -d "C:\Downloads" -e .mp4 -s 100MB -t 8)" << '\n'

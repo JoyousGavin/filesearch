@@ -1,6 +1,8 @@
 #pragma once
 
+#include "filesearch/CacheStore.hpp"
 #include "filesearch/DuplicateDetector.hpp"
+#include "filesearch/ExecutionTimer.hpp"
 #include "filesearch/FileAnalyzer.hpp"
 #include "filesearch/FileInfo.hpp"
 #include "filesearch/ScanEngine.hpp"
@@ -58,6 +60,13 @@ public:
     void RenderExtensionStatistics(std::span<const analysis::ExtensionStatistics> statistics,
                                    std::uintmax_t total_bytes, std::size_t row_limit);
     void RenderDuplicateReport(const analysis::DuplicateReport& report, std::size_t group_limit);
+
+    void RenderCacheLoad(const cache::LoadResult& load_result, const std::filesystem::path& cache_file);
+    void RenderCacheSaved(const std::filesystem::path& cache_file, const scan::ScanResult& scan_result);
+    void RenderCacheUpToDate(const std::filesystem::path& cache_file);
+    void RenderTimingReport(const timing::TimingReport& timing_report);
+    void RenderBenchmark(std::span<const timing::BenchmarkResult> results, std::size_t file_count,
+                         std::size_t repetition_count);
 
     static std::string FormatBytes(std::uintmax_t bytes);                   // 10240 -> "10.00 KB"
     static std::string FormatCount(std::uintmax_t count);                   // 1234567 -> "1,234,567"

@@ -22,11 +22,13 @@ struct ExtensionStatistics {
 //   Heap            std::priority_queue 小顶堆，只保留 K 个元素       O(N log K)，额外内存 O(K)
 //   PartialSortCopy std::partial_sort_copy 直接拷出前 K 个            O(N log K)，额外内存 O(K)
 //   NthElement      std::nth_element 选出前 K 个再对这 K 个排序       平均 O(N + K log K)，额外内存 O(N) 个引用
+//   Ranges          std::ranges::partial_sort_copy（C++20 范围版本）  O(N log K)，额外内存 O(K)
 //   FullSort        整体拷贝后 std::sort，作为对照基准                O(N log N)，额外内存 O(N)
 enum class TopAlgorithm {
     Heap,
     PartialSortCopy,
     NthElement,
+    Ranges,
     FullSort,
 };
 
@@ -47,6 +49,7 @@ public:
     static std::vector<FileInfo> TopLargestWithPartialSortCopy(std::span<const FileInfo> files,
                                                                std::size_t top_count);
     static std::vector<FileInfo> TopLargestWithNthElement(std::span<const FileInfo> files, std::size_t top_count);
+    static std::vector<FileInfo> TopLargestWithRanges(std::span<const FileInfo> files, std::size_t top_count);
     static std::vector<FileInfo> TopLargestWithFullSort(std::span<const FileInfo> files, std::size_t top_count);
 };
 

@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <optional>
 #include <ostream>
@@ -33,6 +34,7 @@ enum class RunMode {
     Statistics,  // 后缀空间占用统计
     TopFiles,    // 最大的 K 个文件
     Duplicates,  // 重复文件检测
+    Benchmark,   // 用 std::chrono 对比各过滤 / Top K 实现的耗时
 };
 
 // 解析并校验后的强类型参数
@@ -45,6 +47,10 @@ struct CommandLineOptions {
     std::size_t top_count = 10;
     analysis::TopAlgorithm top_algorithm = analysis::TopAlgorithm::Heap;
     bool verbose = false;
+    bool show_timing = false;
+    bool cache_enabled = false;
+    bool refresh_cache = false;                       // 忽略旧缓存，完整扫描后重写
+    std::optional<std::filesystem::path> cache_file;  // 未指定时使用 CacheStore::DefaultCacheFile
 };
 
 struct HelpRequest {};

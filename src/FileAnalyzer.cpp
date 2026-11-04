@@ -4,6 +4,7 @@
 #include <functional>
 #include <numeric>
 #include <queue>
+#include <ranges>
 #include <unordered_map>
 #include <utility>
 
@@ -31,6 +32,8 @@ std::string_view ToString(TopAlgorithm top_algorithm) {
             return "partial_sort_copy";
         case TopAlgorithm::NthElement:
             return "nth_element + sort";
+        case TopAlgorithm::Ranges:
+            return "ranges::partial_sort_copy";
         case TopAlgorithm::FullSort:
             return "full sort";
     }
@@ -51,20 +54,16 @@ std::vector<ExtensionStatistics> FileAnalyzer::ComputeExtensionStatistics(std::s
     for (auto& [extension, totals] : totals_by_extension) {
         statistics.push_back(ExtensionStatistics{extension, totals.file_count, totals.total_bytes});
     }
-    std::sort(statistics.begin(), statistics.end(), [](const ExtensionStatistics& left, const ExtensionStatistics& right) {
-        if (left.total_bytes != right.total_bytes) {
-            return left.total_bytes > right.total_bytes;
-        }
-        return left.extension < right.extension;
-    });  //call 上面的 lambda（按总大小降序，同大小按后缀名升序）
+    // ranges 投影：先按后缀名升序，再按总大小降序做稳定排序 -> 同大小的后缀保持字母序，输出可复现
+    std::ranges::sort(statistics, std::ranges::less{}, &ExtensionStatistics::extension);  //call std::ranges::less，比较投影 ExtensionStatistics::extension
+    std::ranges::stable_sort(statistics, std::ranges::greater{}, &ExtensionStatistics::total_bytes);  //call std::ranges::greater，比较投影 ExtensionStatistics::total_bytes
     return statistics;
 }
 
 std::uintmax_t FileAnalyzer::SumBytes(std::span<const FileInfo> files) {
-    return std::accumulate(files.begin(), files.end(), std::uintmax_t{0},
-                           [](std::uintmax_t running_total, const FileInfo& file) {
-                               return running_total + file.size;
-                           });  //call 上面的 lambda（std::accumulate 逐个累加）
+    // views::transform 配合数据成员指针投影出 size 列，再交给 std::accumulate
+    auto sizes = files | std::views::transform(&FileInfo::size);  //call std::invoke(&FileInfo::size, file)，迭代时逐个取成员
+    return std::accumulate(sizes.begin(), sizes.end(), std::uintmax_t{0});
 }
 
 std::vector<FileInfo> FileAnalyzer::TopLargest(std::span<const FileInfo> files, std::size_t top_count,
@@ -76,6 +75,8 @@ std::vector<FileInfo> FileAnalyzer::TopLargest(std::span<const FileInfo> files, 
             return TopLargestWithPartialSortCopy(files, top_count);
         case TopAlgorithm::NthElement:
             return TopLargestWithNthElement(files, top_count);
+        case TopAlgorithm::Ranges:
+            return TopLargestWithRanges(files, top_count);
         case TopAlgorithm::FullSort:
             return TopLargestWithFullSort(files, top_count);
     }
@@ -127,6 +128,15 @@ std::vector<FileInfo> FileAnalyzer::TopLargestWithNthElement(std::span<const Fil
                      &FileOrdering::BySizeDescending);  //call filesearch::FileOrdering::BySizeDescending
     std::sort(references.begin(), boundary, &FileOrdering::BySizeDescending);  //call filesearch::FileOrdering::BySizeDescending
     return std::vector<FileInfo>(references.begin(), boundary);
+}
+
+std::vector<FileInfo> FileAnalyzer::TopLargestWithRanges(std::span<const FileInfo> files, std::size_t top_count) {
+    std::vector<FileInfo> top_files(std::min(top_count, files.size()));
+    // 范围版本直接接收整个容器；返回的 partial_sort_copy_result 中 .in / .out 分别指向输入、输出处理到的位置
+    const auto copy_result =
+        std::ranges::partial_sort_copy(files, top_files, &FileOrdering::BySizeDescending);  //call filesearch::FileOrdering::BySizeDescending
+    top_files.erase(copy_result.out, top_files.end());
+    return top_files;
 }
 
 std::vector<FileInfo> FileAnalyzer::TopLargestWithFullSort(std::span<const FileInfo> files, std::size_t top_count) {
