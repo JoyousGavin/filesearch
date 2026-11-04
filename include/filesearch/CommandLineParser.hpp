@@ -1,5 +1,6 @@
 #pragma once
 
+#include "filesearch/FileAnalyzer.hpp"
 #include "filesearch/FileFilter.hpp"
 #include "filesearch/ScanEngine.hpp"
 #include "filesearch/TextUtilities.hpp"
@@ -27,12 +28,23 @@ struct OptionSpec {
     std::string_view description;
 };
 
+enum class RunMode {
+    Search,      // 过滤 + 排序后列出
+    Statistics,  // 后缀空间占用统计
+    TopFiles,    // 最大的 K 个文件
+    Duplicates,  // 重复文件检测
+};
+
 // 解析并校验后的强类型参数
 struct CommandLineOptions {
     scan::ScanOptions scan;
     filter::FilterCriteria criteria;
+    std::vector<RunMode> modes{RunMode::Search};  // 按给出的顺序依次执行
     filter::SortKey sort_key = filter::SortKey::Size;
-    std::size_t display_limit = 50;  // 0 表示不限制
+    std::size_t display_limit = 50;  // 每张表最多显示的行数（重复检测为组数），0 表示不限制
+    std::size_t top_count = 10;
+    analysis::TopAlgorithm top_algorithm = analysis::TopAlgorithm::Heap;
+    bool verbose = false;
 };
 
 struct HelpRequest {};

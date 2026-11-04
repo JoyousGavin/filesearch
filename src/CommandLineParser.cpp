@@ -15,6 +15,7 @@ namespace filesearch::cli {
 namespace {
 
 constexpr std::array kOptionSpecs{
+    OptionSpec{"mode", 'm', true, true, "<search|stats|top|dup>", "运行模式，可用逗号组合，如 stats,top（默认 search）"},
     OptionSpec{"directory", 'd', true, false, "<path>", "要扫描的根目录（默认当前目录，也可作为位置参数）"},
     OptionSpec{"extension", 'e', true, true, "<list>", "只保留这些后缀，逗号分隔，可重复，如 .mp4,.mkv"},
     OptionSpec{"min-size", 's', true, false, "<size>", "最小文件大小，如 100MB、1.5G、512K"},
@@ -22,9 +23,12 @@ constexpr std::array kOptionSpecs{
     OptionSpec{"name", 'n', true, false, "<text>", "文件名包含该文本（不区分大小写）"},
     OptionSpec{"regex", 'r', true, false, "<pattern>", "文件名匹配该正则（ECMAScript，不区分大小写）"},
     OptionSpec{"sort", '\0', true, false, "<size|path|time>", "搜索结果排序：大小降序 / 路径升序 / 修改时间降序"},
-    OptionSpec{"limit", 'l', true, false, "<n>", "最多显示多少行（默认 50，0 表示全部）"},
+    OptionSpec{"limit", 'l', true, false, "<n>", "每张表最多显示多少行/组（默认 50，0 表示全部）"},
+    OptionSpec{"top", 'k', true, false, "<n>", "top 模式显示最大的 N 个文件（默认 10）"},
+    OptionSpec{"top-algorithm", '\0', true, false, "<heap|partial|nth|sort>", "Top K 算法（默认 heap：小顶堆 O(N log K)）"},
     OptionSpec{"threads", 't', true, false, "<n>", "扫描线程数（默认 CPU 逻辑核心数）"},
     OptionSpec{"strategy", '\0', true, false, "<queue|async>", "并发策略：queue 共享目录队列（默认）/ async 每个子文件夹一个任务"},
+    OptionSpec{"verbose", 'v', false, false, "", "显示全部扫描错误明细"},
     OptionSpec{"help", 'h', false, false, "", "显示帮助"},
 };
 
@@ -37,6 +41,20 @@ struct Choice {
 constexpr std::array kStrategyChoices{
     Choice<scan::ScanStrategy>{"queue", scan::ScanStrategy::WorkQueue},
     Choice<scan::ScanStrategy>{"async", scan::ScanStrategy::AsyncPerSubdirectory},
+};
+
+constexpr std::array kModeChoices{
+    Choice<RunMode>{"search", RunMode::Search},
+    Choice<RunMode>{"stats", RunMode::Statistics},
+    Choice<RunMode>{"top", RunMode::TopFiles},
+    Choice<RunMode>{"dup", RunMode::Duplicates},
+};
+
+constexpr std::array kTopAlgorithmChoices{
+    Choice<analysis::TopAlgorithm>{"heap", analysis::TopAlgorithm::Heap},
+    Choice<analysis::TopAlgorithm>{"partial", analysis::TopAlgorithm::PartialSortCopy},
+    Choice<analysis::TopAlgorithm>{"nth", analysis::TopAlgorithm::NthElement},
+    Choice<analysis::TopAlgorithm>{"sort", analysis::TopAlgorithm::FullSort},
 };
 
 constexpr std::array kSortChoices{
@@ -334,6 +352,37 @@ ParseOutcome CommandLineParser::BuildOptions() const {
         }
         options.display_limit = *display_limit;
     }
+
+    if (const std::optional<std::string_view> mode_value = FindValue("mode")) {
+        options.modes.clear();
+        for (const std::string_view piece : text::SplitString(*mode_value, ',')) {
+            const std::string_view mode_name = text::TrimWhitespace(piece);
+            const std::optional<RunMode> mode = LookupChoice(kModeChoices, mode_name);
+            if (!mode) {
+                return ParseError{"--mode 只能是 search、stats、top、dup 的组合，实际为: " + std::string(mode_name)};
+            }
+            if (std::find(options.modes.begin(), options.modes.end(), *mode) == options.modes.end()) {
+                options.modes.push_back(*mode);  // 保持用户给出的顺序，重复的忽略
+            }
+        }
+    }
+    if (const std::optional<std::string_view> top_value = FindValue("top")) {
+        const std::optional<std::size_t> top_count = ParseCount(*top_value);
+        if (!top_count || *top_count == 0) {
+            return ParseError{"--top 需要正整数，实际为: " + std::string(*top_value)};
+        }
+        options.top_count = *top_count;
+    }
+    if (const std::optional<std::string_view> algorithm_value = FindValue("top-algorithm")) {
+        const std::optional<analysis::TopAlgorithm> top_algorithm =
+            LookupChoice(kTopAlgorithmChoices, *algorithm_value);
+        if (!top_algorithm) {
+            return ParseError{"--top-algorithm 只能是 heap、partial、nth 或 sort，实际为: " +
+                              std::string(*algorithm_value)};
+        }
+        options.top_algorithm = *top_algorithm;
+    }
+    options.verbose = parsed_values_.contains(std::string_view{"verbose"});
     return options;
 }
 
@@ -354,7 +403,9 @@ void CommandLineParser::PrintUsage(std::ostream& output) {
     }
     output << "\n示例:\n"
            << R"(  filesearch -d "C:\Downloads" -e .mp4 -s 100MB -t 8)" << '\n'
-           << R"(  filesearch D:\Projects -r "^report.*\.docx$" --sort time)" << '\n';
+           << R"(  filesearch D:\Projects -r "^report.*\.docx$" --sort time)" << '\n'
+           << R"(  filesearch C:\Users\me -m stats,top -k 20)" << '\n'
+           << R"(  filesearch D:\Photos -m dup -e .jpg,.png -s 100K)" << '\n';
     output.flags(original_flags);
 }
 

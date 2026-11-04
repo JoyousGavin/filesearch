@@ -13,6 +13,10 @@ find_package(Threads REQUIRED)
 
 add_executable(filesearch
     src/main.cpp
+    src/Application.cpp
+    src/ConsoleRenderer.cpp
+    src/DuplicateDetector.cpp
+    src/FileAnalyzer.cpp
     src/CommandLineParser.cpp
     src/FileFilter.cpp
     src/Platform.cpp

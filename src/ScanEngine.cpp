@@ -20,6 +20,16 @@ constexpr std::size_t kFallbackThreadCount = 4;
 
 }  // namespace
 
+std::string_view ToString(ScanStrategy strategy) {
+    switch (strategy) {
+        case ScanStrategy::WorkQueue:
+            return "queue";
+        case ScanStrategy::AsyncPerSubdirectory:
+            return "async";
+    }
+    return "unknown";
+}
+
 std::size_t ResolveThreadCount(std::size_t requested_thread_count) {
     if (requested_thread_count == 0) {
         const unsigned int hardware_threads = std::thread::hardware_concurrency();  // 无法检测时返回 0
@@ -63,7 +73,7 @@ ScanResult ScanEngine::Run() {
     ScanProgress final_progress = SnapshotProgress();
     final_progress.finished = true;
     if (progress_callback_) {
-        progress_callback_(final_progress);  //call ::PrintScanProgress（main.cpp 匿名命名空间，由 main 注册）
+        progress_callback_(final_progress);  //call filesearch::render::ConsoleRenderer::RenderScanProgress（由 Application 通过 SetProgressCallback 注册）
     }
 
     ScanResult result;
@@ -71,7 +81,9 @@ ScanResult ScanEngine::Run() {
     result.error_messages = std::move(error_messages_);
     result.error_count = error_count_.load();
     result.directory_count = scanned_directories_.load();
+    result.total_bytes = scanned_bytes_.load();
     result.thread_count = options_.thread_count;
+    result.strategy = options_.strategy;
     result.elapsed = final_progress.elapsed;
     return result;
 }
@@ -355,7 +367,7 @@ void ScanEngine::ProgressLoop(std::stop_token stop_token) {
             if (stop_token.stop_requested()) {
                 break;
             }
-            progress_callback_(SnapshotProgress());  //call ::PrintScanProgress（main.cpp 匿名命名空间，由 main 注册）
+            progress_callback_(SnapshotProgress());  //call filesearch::render::ConsoleRenderer::RenderScanProgress（由 Application 通过 SetProgressCallback 注册）
         }
     } catch (...) {
         RecordException(std::current_exception());

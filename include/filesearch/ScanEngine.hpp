@@ -48,9 +48,13 @@ struct ScanResult {
     std::vector<std::string> error_messages;  // 只保留前若干条，完整数量见 error_count
     std::size_t error_count = 0;
     std::size_t directory_count = 0;
+    std::uintmax_t total_bytes = 0;
     std::size_t thread_count = 0;
+    ScanStrategy strategy = ScanStrategy::WorkQueue;
     std::chrono::steady_clock::duration elapsed{};
 };
+
+std::string_view ToString(ScanStrategy strategy);
 
 using ProgressCallback = std::function<void(const ScanProgress&)>;
 
