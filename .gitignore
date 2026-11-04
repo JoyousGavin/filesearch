@@ -1,0 +1,10 @@
+# 构建产物
+build/
+out/
+cmake-build-*/
+.vs/
+.vscode/
+.idea/
+
+# 运行时生成的缓存索引
+*.csv
