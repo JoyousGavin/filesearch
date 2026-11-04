@@ -14,6 +14,7 @@ find_package(Threads REQUIRED)
 add_executable(filesearch
     src/main.cpp
     src/Platform.cpp
+    src/ScanEngine.cpp
     src/TextUtilities.cpp
 )
 
