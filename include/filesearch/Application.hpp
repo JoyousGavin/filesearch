@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "filesearch/CommandLineParser.hpp"
 #include "filesearch/ConsoleRenderer.hpp"

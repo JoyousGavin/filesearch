@@ -1,4 +1,4 @@
-#include "filesearch/Platform.hpp"
+﻿#include "filesearch/Platform.hpp"
 
 #include <memory>
 #include <string_view>

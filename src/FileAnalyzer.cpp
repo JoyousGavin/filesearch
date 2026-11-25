@@ -1,4 +1,4 @@
-#include "filesearch/FileAnalyzer.hpp"
+﻿#include "filesearch/FileAnalyzer.hpp"
 
 #include <algorithm>
 #include <functional>

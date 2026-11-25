@@ -1,4 +1,4 @@
-#include "filesearch/Application.hpp"
+﻿#include "filesearch/Application.hpp"
 
 #include "filesearch/CacheStore.hpp"
 #include "filesearch/DuplicateDetector.hpp"

@@ -1,4 +1,4 @@
-#include "filesearch/FileFilter.hpp"
+﻿#include "filesearch/FileFilter.hpp"
 
 #include "filesearch/TextUtilities.hpp"
 

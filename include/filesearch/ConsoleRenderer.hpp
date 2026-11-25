@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "filesearch/CacheStore.hpp"
 #include "filesearch/DuplicateDetector.hpp"

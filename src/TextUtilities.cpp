@@ -1,4 +1,4 @@
-#include "filesearch/TextUtilities.hpp"
+﻿#include "filesearch/TextUtilities.hpp"
 
 #include <algorithm>
 #include <cctype>

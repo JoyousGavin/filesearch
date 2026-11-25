@@ -1,4 +1,4 @@
-#include "filesearch/DuplicateDetector.hpp"
+﻿#include "filesearch/DuplicateDetector.hpp"
 
 #include <algorithm>
 #include <fstream>

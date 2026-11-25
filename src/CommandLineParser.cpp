@@ -1,4 +1,4 @@
-#include "filesearch/CommandLineParser.hpp"
+﻿#include "filesearch/CommandLineParser.hpp"
 
 #include <algorithm>
 #include <array>

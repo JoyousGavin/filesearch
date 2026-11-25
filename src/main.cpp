@@ -1,4 +1,4 @@
-// 入口：只负责编码初始化、命令行解析和顶层异常处理，业务流程在 filesearch::app::Application
+﻿// 入口：只负责编码初始化、命令行解析和顶层异常处理，业务流程在 filesearch::app::Application
 #include "filesearch/Application.hpp"
 #include "filesearch/CommandLineParser.hpp"
 #include "filesearch/ExecutionTimer.hpp"

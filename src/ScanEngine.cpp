@@ -1,4 +1,4 @@
-#include "filesearch/ScanEngine.hpp"
+﻿#include "filesearch/ScanEngine.hpp"
 
 #include "filesearch/Platform.hpp"
 #include "filesearch/TextUtilities.hpp"

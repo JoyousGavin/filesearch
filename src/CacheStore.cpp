@@ -1,4 +1,4 @@
-#include "filesearch/CacheStore.hpp"
+﻿#include "filesearch/CacheStore.hpp"
 
 #include "filesearch/Platform.hpp"
 #include "filesearch/TextUtilities.hpp"

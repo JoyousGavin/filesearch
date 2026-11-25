@@ -1,4 +1,4 @@
-#include "filesearch/ConsoleRenderer.hpp"
+﻿#include "filesearch/ConsoleRenderer.hpp"
 
 #include "filesearch/TextUtilities.hpp"
 

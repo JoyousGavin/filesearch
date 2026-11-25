@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "filesearch/FileInfo.hpp"
 #include "filesearch/ScanEngine.hpp"
