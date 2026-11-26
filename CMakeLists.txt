@@ -27,7 +27,8 @@ add_executable(filesearch
 
 target_include_directories(filesearch PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(filesearch PRIVATE cxx_std_20)
-set_target_properties(filesearch PROPERTIES CXX_EXTENSIONS OFF)
+# 项目未使用 C++20 模块：关闭模块依赖扫描，避免 compile_commands.json 混入 clangd 不认识的 GCC 参数
+set_target_properties(filesearch PROPERTIES CXX_EXTENSIONS OFF CXX_SCAN_FOR_MODULES OFF)
 target_link_libraries(filesearch PRIVATE Threads::Threads)
 
 if(MSVC)
